@@ -26,6 +26,7 @@
   <div id="typing"></div>
   <textarea id="message" placeholder="Type a message... (Enter to send, Shift+Enter for newline)"></textarea>
   <button onclick="sendMessage()">Send</button>
+  <audio id="ding" src="https://notificationsounds.com/storage/sounds/file-sounds-1153-pristine.mp3" preload="auto"></audio>
 
   <script>
     const util = nacl.util;
@@ -71,12 +72,21 @@
           const nonce = new Uint8Array(data.nonce);
           const box = new Uint8Array(data.box);
           const msg = nacl.box.open.after(box, nonce, sharedSecret);
-          if (msg) log("Peer: " + util.encodeUTF8(msg), "peer");
-          else log("⚠️ Decryption failed", "system");
+          if (msg) {
+            playNotification();
+            log("Peer: " + util.encodeUTF8(msg), "peer");
+          } else log("⚠️ Decryption failed", "system");
           setTypingIndicator(false);
         } else if (data.type === 'typing') {
           setTypingIndicator(true);
+        } else if (data.type === 'disconnect') {
+          log("❌ Peer disconnected.", "system");
         }
+      });
+
+      conn.on('close', () => {
+        log("❌ Connection closed.", "system");
+        if (conn && conn.open) conn.send({ type: 'disconnect' });
       });
     }
 
@@ -110,7 +120,11 @@
       }
     }
 
-    // Send "typing" signal on keypress
+    function playNotification() {
+      const sound = document.getElementById("ding");
+      sound.play().catch(() => {});
+    }
+
     const messageBox = document.getElementById("message");
     messageBox.addEventListener("input", () => {
       if (conn && conn.open && sharedSecret) {
@@ -118,7 +132,6 @@
       }
     });
 
-    // Send on Enter (but allow Shift+Enter for newlines)
     messageBox.addEventListener("keydown", e => {
       if (e.key === "Enter" && !e.shiftKey) {
         e.preventDefault();

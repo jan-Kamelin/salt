@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>NaCl P2P Chat</title>
+  <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/tweetnacl@1.0.3/nacl.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/tweetnacl-util@0.15.1/nacl-util.min.js"></script>
+  <style>
+    body { font-family: sans-serif; background: #111; color: #eee; padding: 1em; }
+    input, textarea { width: 100%; padding: 0.5em; margin-top: 0.5em; background: #222; color: #eee; border: 1px solid #444; }
+    #chat { height: 200px; overflow-y: scroll; border: 1px solid #444; padding: 0.5em; margin-top: 0.5em; }
+  </style>
+</head>
+<body>
+  <h1>🔐 NaCl P2P Chat</h1>
+  <p>Your ID: <span id="my-id">...</span></p>
+  <input id="peer-id" placeholder="Enter peer ID to connect" />
+  <button onclick="connectToPeer()">Connect</button>
+  <div id="chat"></div>
+  <textarea id="message" placeholder="Type message..."></textarea>
+  <button onclick="sendMessage()">Send</button>
+
+  <script>
+    const util = nacl.util;
+    const myKeys = nacl.box.keyPair();
+    let peer = new Peer();
+    let conn;
+    let sharedSecret = null;
+
+    peer.on('open', id => {
+      document.getElementById('my-id').textContent = id;
+    });
+
+    peer.on('connection', connection => {
+      conn = connection;
+      conn.on('data', async data => {
+        if (data.type === 'pubkey') {
+          const theirPublicKey = new Uint8Array(data.key);
+          sharedSecret = nacl.box.before(theirPublicKey, myKeys.secretKey);
+          conn.send({ type: 'pubkey', key: Array.from(myKeys.publicKey) });
+          log("[🔐] Shared key established");
+        } else if (data.type === 'msg') {
+          if (!sharedSecret) return log("[⚠️] No shared key!");
+          const nonce = new Uint8Array(data.nonce);
+          const box = new Uint8Array(data.box);
+          const msg = nacl.box.open.after(box, nonce, sharedSecret);
+          if (msg) log("Peer: " + util.encodeUTF8(msg));
+          else log("[⚠️] Decryption failed");
+        }
+      });
+      conn.on('open', () => {
+        conn.send({ type: 'pubkey', key: Array.from(myKeys.publicKey) });
+        log("[🔌] Connected, exchanging keys...");
+      });
+    });
+
+    function connectToPeer() {
+      const id = document.getElementById('peer-id').value.trim();
+      conn = peer.connect(id);
+      conn.on('data', data => {
+        if (data.type === 'pubkey') {
+          const theirPublicKey = new Uint8Array(data.key);
+          sharedSecret = nacl.box.before(theirPublicKey, myKeys.secretKey);
+          conn.send({ type: 'pubkey', key: Array.from(myKeys.publicKey) });
+          log("[🔐] Shared key established");
+        } else if (data.type === 'msg') {
+          if (!sharedSecret) return log("[⚠️] No shared key!");
+          const nonce = new Uint8Array(data.nonce);
+          const box = new Uint8Array(data.box);
+          const msg = nacl.box.open.after(box, nonce, sharedSecret);
+          if (msg) log("Peer: " + util.encodeUTF8(msg));
+          else log("[⚠️] Decryption failed");
+        }
+      });
+      conn.on('open', () => {
+        conn.send({ type: 'pubkey', key: Array.from(myKeys.publicKey) });
+        log("[🔌] Connected, exchanging keys...");
+      });
+    }
+
+    function sendMessage() {
+      if (!conn || !conn.open || !sharedSecret) return;
+      const msg = util.decodeUTF8(document.getElementById('message').value);
+      const nonce = nacl.randomBytes(24);
+      const box = nacl.box.after(msg, nonce, sharedSecret);
+      conn.send({ type: 'msg', nonce: Array.from(nonce), box: Array.from(box) });
+      log("You: " + util.encodeUTF8(msg));
+      document.getElementById('message').value = '';
+    }
+
+    function log(text) {
+      const chat = document.getElementById('chat');
+      chat.innerHTML += text + "<br>";
+      chat.scrollTop = chat.scrollHeight;
+    }
+  </script>
+</body>
+</html>

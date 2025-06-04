@@ -14,6 +14,7 @@
     .system { color: #888; }
     .user { color: #0f0; }
     .peer { color: #0ff; }
+    #typing { font-style: italic; color: #666; margin-top: 0.3em; }
   </style>
 </head>
 <body>
@@ -22,7 +23,8 @@
   <input id="peer-id" placeholder="Enter peer ID to connect" />
   <button onclick="connectToPeer()">Connect</button>
   <div id="chat"></div>
-  <textarea id="message" placeholder="Type a message..."></textarea>
+  <div id="typing"></div>
+  <textarea id="message" placeholder="Type a message... (Enter to send, Shift+Enter for newline)"></textarea>
   <button onclick="sendMessage()">Send</button>
 
   <script>
@@ -32,6 +34,7 @@
     let conn;
     let sharedSecret = null;
     let hasEstablishedKey = false;
+    let typingTimeout;
 
     peer.on('open', id => {
       document.getElementById('my-id').textContent = id;
@@ -70,6 +73,9 @@
           const msg = nacl.box.open.after(box, nonce, sharedSecret);
           if (msg) log("Peer: " + util.encodeUTF8(msg), "peer");
           else log("⚠️ Decryption failed", "system");
+          setTypingIndicator(false);
+        } else if (data.type === 'typing') {
+          setTypingIndicator(true);
         }
       });
     }
@@ -94,6 +100,31 @@
       chat.appendChild(line);
       chat.scrollTop = chat.scrollHeight;
     }
+
+    function setTypingIndicator(show) {
+      const typingDiv = document.getElementById("typing");
+      typingDiv.textContent = show ? "Peer is typing..." : "";
+      if (show) {
+        clearTimeout(typingTimeout);
+        typingTimeout = setTimeout(() => typingDiv.textContent = "", 3000);
+      }
+    }
+
+    // Send "typing" signal on keypress
+    const messageBox = document.getElementById("message");
+    messageBox.addEventListener("input", () => {
+      if (conn && conn.open && sharedSecret) {
+        conn.send({ type: "typing" });
+      }
+    });
+
+    // Send on Enter (but allow Shift+Enter for newlines)
+    messageBox.addEventListener("keydown", e => {
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        sendMessage();
+      }
+    });
   </script>
 </body>
 </html>
